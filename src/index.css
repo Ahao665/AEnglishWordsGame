@@ -1,0 +1,344 @@
+:root {
+  --primary: #4ecdc4;
+  --secondary: #ff6b6b;
+  --accent: #ffe66d;
+  --dark: #292f36;
+  --light: #f7fff7;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Fredoka', 'Varela Round', sans-serif;
+  background-color: var(--dark);
+  color: var(--light);
+  overflow: hidden;
+  user-select: none;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+}
+
+.game-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  position: relative;
+}
+
+/* Camera Layer */
+.camera-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  opacity: 0.6;
+  transform: scaleX(-1); /* Mirror effect */
+}
+
+.camera-feed {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.detection-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* UI Layer */
+.ui-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  pointer-events: none; /* Let clicks pass through to interactive elements if needed */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Game Header */
+.header {
+  padding: 20px;
+  display: flex;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(5px);
+}
+
+.score-board {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: var(--accent);
+}
+
+.status.status-wrong {
+  color: var(--secondary);
+  font-weight: bold;
+}
+
+/* Word Display */
+.word-area {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  gap: 40px;
+}
+
+.target-word {
+  display: flex;
+  gap: 15px;
+}
+
+.letter-slot {
+  width: 80px;
+  height: 80px;
+  border: 3px dashed rgba(255, 255, 255, 0.5);
+  border-radius: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 3rem;
+  background: rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+}
+
+.letter-slot.filled {
+  border-style: solid;
+  border-color: var(--primary);
+  background: rgba(78, 205, 196, 0.2);
+}
+
+.letter-slot.correct,
+.letter-slot.locked-correct {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.letter-slot.locked-correct {
+  border-style: solid;
+  box-shadow: 0 0 0 2px rgba(78, 205, 196, 0.5);
+}
+
+.letter-slot.wrong {
+  background: var(--secondary);
+  border-color: var(--secondary);
+  animation: shake 0.5s;
+}
+
+.target-word.wrong-shake {
+  animation: shake 0.5s;
+}
+
+/* 确认拼写 / 下一题 按钮 - 需要可点击 */
+.confirm-row {
+  position: absolute;
+  bottom: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.confirm-btn,
+.next-btn {
+  padding: 14px 32px;
+  font-size: 1.25rem;
+  font-weight: bold;
+  color: var(--dark);
+  background: var(--accent);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 4px 0 #c9b846;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.confirm-btn:hover,
+.next-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #c9b846;
+}
+
+.confirm-btn:active,
+.next-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 #c9b846;
+}
+
+.next-hint {
+  margin: 12px 0 0;
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.next-btn {
+  margin-top: 12px;
+  background: var(--primary);
+  box-shadow: 0 4px 0 #3ab5ae;
+}
+
+.next-btn:hover {
+  box-shadow: 0 6px 0 #3ab5ae;
+}
+
+/* 右下角提示按钮：翻译 + 读音 */
+.hint-btn-wrap {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.hint-btn {
+  padding: 10px 18px;
+  font-size: 0.95rem;
+  color: var(--dark);
+  background: rgba(255, 255, 255, 0.9);
+  border: 2px solid var(--primary);
+  border-radius: 12px;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.hint-btn:hover {
+  background: var(--primary);
+  color: white;
+}
+
+.hint-btn-pronounce {
+  border-color: var(--accent);
+}
+
+.hint-btn-pronounce:hover {
+  background: var(--accent);
+}
+
+.translation-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -120%);
+  margin: 0;
+  padding: 12px 24px;
+  background: rgba(0, 0, 0, 0.85);
+  color: var(--accent);
+  font-size: 1.5rem;
+  border-radius: 12px;
+  z-index: 50;
+  pointer-events: none;
+}
+
+/* Draggable Tiles */
+.tile-container {
+  display: flex;
+  gap: 20px;
+  padding: 40px;
+  justify-content: center;
+  min-height: 120px;
+}
+
+.letter-tile {
+  width: 70px;
+  height: 70px;
+  background: white;
+  color: var(--dark);
+  border-radius: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 2.5rem;
+  font-weight: bold;
+  box-shadow: 0 4px 0 #ccc;
+  position: absolute; /* Controlled by React/GSAP */
+  cursor: grab;
+  transition: transform 0.1s;
+  pointer-events: auto; /* Re-enable pointer events for tiles */
+}
+
+.letter-tile.dragging {
+  transform: scale(1.2);
+  z-index: 100;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+  background: var(--accent);
+}
+
+.letter-tile.flash-red {
+  animation: flashRed 0.6s ease;
+  background: var(--secondary);
+  color: white;
+}
+
+@keyframes flashRed {
+  0%, 100% { background: white; color: var(--dark); }
+  50% { background: var(--secondary); color: white; }
+}
+
+/* Feedback Overlay */
+.feedback-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  background: rgba(0, 0, 0, 0.8);
+  padding: 40px;
+  border-radius: 20px;
+  z-index: 100;
+}
+
+.feedback-word {
+  font-size: 4rem;
+  color: var(--primary);
+  margin: 0;
+}
+
+.feedback-translation {
+  font-size: 2rem;
+  color: white;
+  margin-top: 10px;
+}
+
+/* Animations */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+/* Hand Cursor */
+.hand-cursor {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--accent);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 999;
+  box-shadow: 0 0 15px var(--accent);
+  transition: width 0.2s, height 0.2s, background 0.2s;
+}
+
+.hand-cursor.pinching {
+  width: 20px;
+  height: 20px;
+  background: var(--accent);
+}

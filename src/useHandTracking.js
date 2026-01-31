@@ -83,14 +83,26 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
 
     const startSystem = async () => {
       try {
-        // 0. 检查 MediaPipe 脚本是否加载（电脑/网络慢时 CDN 可能未就绪，稍等再试一次）
+        // 0. 等待 MediaPipe 脚本就绪（在线/系统浏览器首次加载较慢，轮询最多约 20 秒）
         if (typeof window === 'undefined') return;
+        const base = import.meta.env.BASE_URL || '/';
+        const scriptBase = `${window.location.origin}${base}mediapipe`;
         if (!window.Hands || !window.Camera) {
-          await new Promise(r => setTimeout(r, 800));
-          if (!isMounted) return;
-          if (!window.Hands || !window.Camera) {
-            setStatusMessage('MediaPipe 未加载：请检查网络后刷新；电脑建议用 Chrome/Edge，手机建议用 Chrome 或 Safari 最新版');
-            return;
+          setStatusMessage('正在加载 MediaPipe 脚本...');
+          const waitStart = Date.now();
+          const WAIT_MS = 20000;
+          while (!window.Hands || !window.Camera) {
+            await new Promise(r => setTimeout(r, 400));
+            if (!isMounted) return;
+            if (Date.now() - waitStart > WAIT_MS) {
+              console.error('MediaPipe 脚本未就绪。请检查 Network 是否成功加载:', [
+                `${scriptBase}/hands.js`,
+                `${scriptBase}/camera_utils/camera_utils.js`,
+                `${scriptBase}/drawing_utils/drawing_utils.js`,
+              ]);
+              setStatusMessage('MediaPipe 未加载：请检查网络后刷新；若为在线访问请确认地址栏为本站完整链接（如含 /仓库名/）');
+              return;
+            }
           }
         }
         if (window.location.protocol === 'http:' && !window.location.hostname.includes('localhost')) {
@@ -126,7 +138,6 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
         setIsCameraActive(true);
         console.log("Camera started successfully");
 
-        const base = import.meta.env.BASE_URL || '/';
         // 手机/平板用轻量模型 (modelComplexity 0)，加载更快、体积更小
         const useLiteModel = isNarrow;
 
@@ -168,12 +179,12 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
           clearInterval(loadingTimer);
           if (!isMounted) return;
           if (initErr?.message === 'LOAD_TIMEOUT') {
-            setStatusMessage('加载超时，请检查网络后刷新；或稍后重试');
+            setStatusMessage('加载超时，请刷新页面重试（已启用 WASM 类型修正）');
             return;
           }
           const msg = initErr?.message || String(initErr);
           const isWasm = /wasm|abort|simd|module/i.test(msg);
-          setStatusMessage(isWasm ? '当前浏览器可能不支持，请尝试 Chrome 或 Edge 最新版（手机建议用 Chrome）' : `模型加载失败: ${msg}`);
+          setStatusMessage(isWasm ? 'WASM 加载异常，请刷新页面重试；或使用 Chrome/Edge 最新版' : `模型加载失败: ${msg}`);
           return;
         }
         clearInterval(loadingTimer);

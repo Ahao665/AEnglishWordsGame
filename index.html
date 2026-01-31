@@ -9,10 +9,10 @@
     <div id="root"></div>
 
     <!-- MediaPipe 需自行管理 Module，勿在加载前清空，否则平板/Safari 会报 Module.arguments 错误 -->
-    <!-- ✅ MediaPipe Global Scripts (CDN) -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js" crossorigin="anonymous"></script>
+    <!-- 使用本地/同站脚本，不依赖国外 CDN，无需 VPN -->
+    <script src="./mediapipe/hands.js"></script>
+    <script src="./mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="./mediapipe/drawing_utils/drawing_utils.js"></script>
 
     <!-- React Main Entry -->
     <script type="module" src="/src/main.jsx"></script>

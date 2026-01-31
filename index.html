@@ -8,11 +8,37 @@
   <body>
     <div id="root"></div>
 
-    <!-- MediaPipe 需自行管理 Module，勿在加载前清空，否则平板/Safari 会报 Module.arguments 错误 -->
-    <!-- 使用本地/同站脚本，不依赖国外 CDN，无需 VPN -->
-    <script src="./mediapipe/hands.js"></script>
-    <script src="./mediapipe/camera_utils/camera_utils.js"></script>
-    <script src="./mediapipe/drawing_utils/drawing_utils.js"></script>
+    <!-- 先注册 SW 并等其就绪，再加载 MediaPipe，这样 .wasm 请求会被 SW 修正 MIME -->
+    <script>
+      (function(){
+        var base = (document.querySelector('base') && document.querySelector('base').getAttribute('href')) || '/';
+        if (!base.endsWith('/')) base += '/';
+        function loadScript(src) {
+          return new Promise(function(resolve, reject) {
+            var s = document.createElement('script');
+            s.src = src;
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+          });
+        }
+        function loadMediaPipe() {
+          loadScript(base + 'mediapipe/hands.js')
+            .then(function() { return loadScript(base + 'mediapipe/camera_utils/camera_utils.js'); })
+            .then(function() { return loadScript(base + 'mediapipe/drawing_utils/drawing_utils.js'); })
+            .catch(function(e) { console.error('MediaPipe scripts load error', e); });
+        }
+        if (!('serviceWorker' in navigator)) {
+          loadMediaPipe();
+          return;
+        }
+        navigator.serviceWorker.register(base + 'sw-wasm-mime.js').catch(function(){});
+        Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise(function(r) { setTimeout(r, 2500); })
+        ]).then(loadMediaPipe);
+      })();
+    </script>
 
     <!-- React Main Entry -->
     <script type="module" src="/src/main.jsx"></script>

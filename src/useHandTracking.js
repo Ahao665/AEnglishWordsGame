@@ -100,9 +100,10 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
         setIsCameraActive(true);
         console.log("Camera started successfully");
 
-        // 2. 检查模型文件是否可访问 (Pre-check)
+        // 2. 检查模型文件是否可访问 (Pre-check)，使用 Vite base 以支持 GitHub Pages 子路径
         setStatusMessage("正在检查模型文件...");
-        const wasmUrl = `${window.location.origin}/mediapipe/hands_solution_simd_wasm_bin.wasm`;
+        const base = import.meta.env.BASE_URL || '/';
+        const wasmUrl = `${window.location.origin}${base}mediapipe/hands_solution_simd_wasm_bin.wasm`;
         try {
             const response = await fetch(wasmUrl, { method: 'HEAD' });
             if (!response.ok) {
@@ -124,7 +125,7 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
 
         hands = new window.Hands({
           locateFile: (file) => {
-            const url = `${window.location.origin}/mediapipe/${file}`;
+            const url = `${window.location.origin}${base}mediapipe/${file}`;
             console.log(`LocateFile requesting: ${url}`);
             return url;
           }

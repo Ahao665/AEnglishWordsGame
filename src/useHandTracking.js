@@ -83,10 +83,25 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
 
     const startSystem = async () => {
       try {
+        // 0. 检查 MediaPipe 脚本是否加载（电脑/网络慢时 CDN 可能未就绪，稍等再试一次）
+        if (typeof window === 'undefined') return;
+        if (!window.Hands || !window.Camera) {
+          await new Promise(r => setTimeout(r, 800));
+          if (!isMounted) return;
+          if (!window.Hands || !window.Camera) {
+            setStatusMessage('MediaPipe 未加载：请检查网络后刷新；电脑建议用 Chrome/Edge，手机建议用 Chrome 或 Safari 最新版');
+            return;
+          }
+        }
+        if (window.location.protocol === 'http:' && !window.location.hostname.includes('localhost')) {
+          setStatusMessage('请使用 HTTPS 打开（摄像头需要安全连接），或本地运行 npm run dev');
+          return;
+        }
+
         // 1. 立即启动摄像头 (让用户先看到画面)
         setStatusMessage("正在启动摄像头...");
-        const isNarrow = typeof window !== 'undefined' && window.innerWidth < 768;
-        camera = new Camera(videoElement, {
+        const isNarrow = window.innerWidth < 768;
+        camera = new window.Camera(videoElement, {
           onFrame: async () => {
             if (hands && modelLoadedRef.current) {
               await hands.send({ image: videoElement });
@@ -96,7 +111,17 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
           height: isNarrow ? 270 : 360
         });
 
-        await camera.start();
+        try {
+          await camera.start();
+        } catch (camErr) {
+          if (!isMounted) return;
+          const name = camErr?.name || '';
+          if (name === 'NotAllowedError') setStatusMessage('请允许摄像头权限后刷新');
+          else if (name === 'NotFoundError') setStatusMessage('未检测到摄像头');
+          else if (name === 'NotReadableError') setStatusMessage('摄像头被占用，请关闭其他应用后重试');
+          else setStatusMessage(`摄像头错误: ${camErr?.message || camErr}`);
+          return;
+        }
         if (!isMounted) return;
         setIsCameraActive(true);
         console.log("Camera started successfully");
@@ -120,10 +145,6 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
         // 3. 初始化 MediaPipe Hands
         setStatusMessage("正在加载 AI 模型 (可能需要 10-20 秒)...");
         
-        if (!window.Hands) {
-             throw new Error("MediaPipe Hands 库未加载 (window.Hands is undefined)");
-        }
-
         hands = new window.Hands({
           locateFile: (file) => {
             const url = `${window.location.origin}${base}mediapipe/${file}`;
@@ -141,8 +162,16 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
 
         hands.onResults(onResults);
 
-        // 4. 显式初始化并预热
-        await hands.initialize();
+        // 4. 显式初始化并预热（部分手机/平板浏览器 WASM 可能失败）
+        try {
+          await hands.initialize();
+        } catch (initErr) {
+          if (!isMounted) return;
+          const msg = initErr?.message || String(initErr);
+          const isWasm = /wasm|abort|simd|module/i.test(msg);
+          setStatusMessage(isWasm ? '当前浏览器可能不支持，请尝试 Chrome 或 Edge 最新版（手机建议用 Chrome）' : `模型加载失败: ${msg}`);
+          return;
+        }
         if (!isMounted) return;
         
         console.log("Hands initialized");

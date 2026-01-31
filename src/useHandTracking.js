@@ -126,25 +126,10 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
         setIsCameraActive(true);
         console.log("Camera started successfully");
 
-        // 2. 检查模型文件是否可访问 (Pre-check)，使用 Vite base 以支持 GitHub Pages 子路径
-        setStatusMessage("正在检查模型文件...");
         const base = import.meta.env.BASE_URL || '/';
-        const wasmUrl = `${window.location.origin}${base}mediapipe/hands_solution_simd_wasm_bin.wasm`;
-        try {
-            const response = await fetch(wasmUrl, { method: 'HEAD' });
-            if (!response.ok) {
-                throw new Error(`无法访问 WASM 文件 (Status: ${response.status})`);
-            }
-            console.log("WASM file is accessible:", wasmUrl);
-        } catch (fetchErr) {
-            console.error("Asset check failed:", fetchErr);
-            setStatusMessage(`模型文件丢失: ${fetchErr.message}`);
-            return;
-        }
+        // 手机/平板用轻量模型 (modelComplexity 0)，加载更快、体积更小
+        const useLiteModel = isNarrow;
 
-        // 3. 初始化 MediaPipe Hands
-        setStatusMessage("正在加载 AI 模型 (可能需要 10-20 秒)...");
-        
         hands = new window.Hands({
           locateFile: (file) => {
             const url = `${window.location.origin}${base}mediapipe/${file}`;
@@ -155,23 +140,43 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
 
         hands.setOptions({
           maxNumHands: handMode === 'one' ? 1 : 2,
-          modelComplexity: 1,
+          modelComplexity: useLiteModel ? 0 : 1,
           minDetectionConfidence: 0.5,
           minTrackingConfidence: 0.5
         });
 
         hands.onResults(onResults);
 
-        // 4. 显式初始化并预热（部分手机/平板浏览器 WASM 可能失败）
+        // 加载进度：显示已等待秒数，避免用户误以为卡死
+        let loadingSeconds = 0;
+        const loadingTimer = setInterval(() => {
+          if (!isMounted || modelLoadedRef.current) return;
+          loadingSeconds += 3;
+          setStatusMessage(`正在加载 AI 模型... (已等待 ${loadingSeconds} 秒，请勿关闭)`);
+        }, 3000);
+        setStatusMessage("正在加载 AI 模型... (请稍候，首次约 10–30 秒)");
+
+        const LOAD_TIMEOUT_MS = 55000;
+        const initPromise = hands.initialize();
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('LOAD_TIMEOUT')), LOAD_TIMEOUT_MS)
+        );
+
         try {
-          await hands.initialize();
+          await Promise.race([initPromise, timeoutPromise]);
         } catch (initErr) {
+          clearInterval(loadingTimer);
           if (!isMounted) return;
+          if (initErr?.message === 'LOAD_TIMEOUT') {
+            setStatusMessage('加载超时，请检查网络后刷新；或稍后重试');
+            return;
+          }
           const msg = initErr?.message || String(initErr);
           const isWasm = /wasm|abort|simd|module/i.test(msg);
           setStatusMessage(isWasm ? '当前浏览器可能不支持，请尝试 Chrome 或 Edge 最新版（手机建议用 Chrome）' : `模型加载失败: ${msg}`);
           return;
         }
+        clearInterval(loadingTimer);
         if (!isMounted) return;
         
         console.log("Hands initialized");

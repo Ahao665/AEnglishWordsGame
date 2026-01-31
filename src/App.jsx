@@ -33,12 +33,19 @@ function App() {
   const confirmGestureFiredRef = useRef(false);
   const nextWordGestureFiredRef = useRef(false);
 
-  const TILE_SIZE = 70;
-  const TILE_HIT_RADIUS = 52;
-  const SLOT_WIDTH = 80;
-  const SLOT_GAP = 15;
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const TILE_SIZE = isMobile ? 48 : 70;
+  const TILE_HIT_RADIUS = isMobile ? 40 : 52;
+  const SLOT_WIDTH = isMobile ? 52 : 80;
+  const SLOT_GAP = isMobile ? 8 : 15;
   const SLOT_PITCH = SLOT_WIDTH + SLOT_GAP;
-  const DROP_SNAP_RADIUS = 70; // 放槽时按最近槽吸附，避免拖远放不进
+  const DROP_SNAP_RADIUS = isMobile ? 50 : 70;
   const translationBtnRef = useRef(null);
   const pronunciationBtnRef = useRef(null);
   const translationGestureFiredRef = useRef(false);
@@ -49,7 +56,7 @@ function App() {
   const getSlotLayout = () => {
     if (!currentWord) return null;
     const startX = (window.innerWidth - (currentWord.word.length * SLOT_PITCH)) / 2;
-    const slotY = window.innerHeight / 2 - 100;
+    const slotY = window.innerHeight / 2 - (isMobile ? 60 : 100);
     return { startX, slotY };
   };
   const getSlotCenter = (slotIndex) => {
@@ -65,7 +72,8 @@ function App() {
     if (!layout || !currentWord) return -1;
     const i = Math.round((x - layout.startX - SLOT_WIDTH / 2) / SLOT_PITCH);
     if (i < 0 || i >= currentWord.word.length) return -1;
-    if (y < layout.slotY - 20 || y > layout.slotY + SLOT_WIDTH + 20) return -1;
+    const margin = isMobile ? 12 : 20;
+    if (y < layout.slotY - margin || y > layout.slotY + SLOT_WIDTH + margin) return -1;
     return i;
   };
   const getNearestSlotIndex = (x, y) => {
@@ -322,7 +330,7 @@ function App() {
       {/* Camera & Detection Layer */}
       <div className="camera-layer">
         <video ref={videoRef} className="camera-feed" autoPlay playsInline muted />
-        <canvas ref={canvasRef} className="detection-canvas" width={640} height={360} />
+        <canvas ref={canvasRef} className="detection-canvas" width={isMobile ? 480 : 640} height={isMobile ? 270 : 360} />
       </div>
 
       {/* UI Layer */}
@@ -414,11 +422,12 @@ function App() {
         <main className="word-area">
            {/* Target Slots */}
            {currentWord && (
-             <div className={`target-word ${wrongMessage ? 'wrong-shake' : ''}`}>
+             <div className={`target-word ${wrongMessage ? 'wrong-shake' : ''}`} style={{ gap: SLOT_GAP }}>
                 {placedLetters.map((char, i) => (
                    <div
                      key={i}
                      className={`letter-slot ${char ? 'filled' : ''} ${lockedCorrectSlots[i] ? 'locked-correct' : ''} ${gameState === GAME_STATES.SUCCESS ? 'correct' : ''}`}
+                     style={{ width: SLOT_WIDTH, height: SLOT_WIDTH, fontSize: isMobile ? '1.75rem' : '3rem' }}
                    >
                       {char}
                    </div>
@@ -453,6 +462,9 @@ function App() {
                         left: tile.x, 
                         top: tile.y,
                         position: 'absolute',
+                        width: TILE_SIZE,
+                        height: TILE_SIZE,
+                        fontSize: isMobile ? '1.6rem' : '2.5rem',
                         transform: `rotate(${tile.rotation ?? 0}deg)`
                     }}
                  >

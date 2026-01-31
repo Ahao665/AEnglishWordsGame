@@ -85,14 +85,15 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
       try {
         // 1. 立即启动摄像头 (让用户先看到画面)
         setStatusMessage("正在启动摄像头...");
+        const isNarrow = typeof window !== 'undefined' && window.innerWidth < 768;
         camera = new Camera(videoElement, {
           onFrame: async () => {
             if (hands && modelLoadedRef.current) {
               await hands.send({ image: videoElement });
             }
           },
-          width: 640,
-          height: 360
+          width: isNarrow ? 480 : 640,
+          height: isNarrow ? 270 : 360
         });
 
         await camera.start();

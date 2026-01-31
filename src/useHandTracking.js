@@ -141,17 +141,6 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
         // 手机/平板用轻量模型 (modelComplexity 0)，加载更快、体积更小
         const useLiteModel = isNarrow;
 
-        // 预检：主页面请求一次 .wasm，方便在 Network 里看到并确认是否 200（MediaPipe 实际请求可能在 Worker 里不显示）
-        const wasmUrl = `${window.location.origin}${base}mediapipe/hands_solution_simd_wasm_bin.wasm`;
-        try {
-          const r = await fetch(wasmUrl);
-          if (!r.ok) console.warn(`[MediaPipe] .wasm 预检失败: ${r.status} ${r.statusText}`, wasmUrl);
-          else console.log('[MediaPipe] .wasm 预检 OK，可在 Network 中搜索 mediapipe 或 wasm 查看', wasmUrl);
-        } catch (e) {
-          console.warn('[MediaPipe] .wasm 预检请求异常', e);
-        }
-        if (!isMounted) return;
-
         hands = new window.Hands({
           locateFile: (file) => {
             const url = `${window.location.origin}${base}mediapipe/${file}`;

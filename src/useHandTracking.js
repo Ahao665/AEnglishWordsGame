@@ -1,4 +1,15 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+
+// Hand connections for drawing
+const HAND_CONNECTIONS = [
+  [0, 1], [1, 2], [2, 3], [3, 4],
+  [0, 5], [5, 6], [6, 7], [7, 8],
+  [0, 9], [9, 10], [10, 11], [11, 12],
+  [0, 13], [13, 14], [14, 15], [15, 16],
+  [0, 17], [17, 18], [18, 19], [19, 20],
+  [5, 9], [9, 13], [13, 17]
+];
 
 export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 'two') => {
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -9,57 +20,70 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
   const [statusMessage, setStatusMessage] = useState("正在初始化...");
   const modelLoadedRef = useRef(false);
   const onHandDetectedRef = useRef(onHandDetected);
+  const handLandmarkerRef = useRef(null);
+  const animationFrameRef = useRef(null);
 
   useEffect(() => {
     onHandDetectedRef.current = onHandDetected;
   }, [onHandDetected]);
 
-  const onResults = useCallback((results) => {
-    if (!modelLoadedRef.current) {
-      modelLoadedRef.current = true;
-      setIsModelLoaded(true);
-      setStatusMessage("识别已激活！请展示手掌。");
+  const drawHandLandmarks = useCallback((ctx, landmarks) => {
+    // Draw connections
+    ctx.strokeStyle = '#00FF00';
+    ctx.lineWidth = 5;
+    for (const [start, end] of HAND_CONNECTIONS) {
+      const startPoint = landmarks[start];
+      const endPoint = landmarks[end];
+      ctx.beginPath();
+      ctx.moveTo(startPoint.x * ctx.canvas.width, startPoint.y * ctx.canvas.height);
+      ctx.lineTo(endPoint.x * ctx.canvas.width, endPoint.y * ctx.canvas.height);
+      ctx.stroke();
+    }
+    // Draw landmarks
+    ctx.fillStyle = '#FF0000';
+    for (const point of landmarks) {
+      ctx.beginPath();
+      ctx.arc(point.x * ctx.canvas.width, point.y * ctx.canvas.height, 4, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }, []);
+
+  const processFrame = useCallback(() => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const handLandmarker = handLandmarkerRef.current;
+
+    if (!video || !canvas || !handLandmarker || !modelLoadedRef.current) {
+      animationFrameRef.current = requestAnimationFrame(processFrame);
+      return;
     }
 
-    const canvas = canvasRef.current;
-    const video = videoRef.current;
-    
-    if (!canvas || !video) return;
-
     const ctx = canvas.getContext('2d');
-    ctx.save();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // 不再在 canvas 内镜像，由 .camera-layer 的 scaleX(-1) 统一镜像，与视频一致
 
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+    const results = handLandmarker.detectForVideo(video, performance.now());
+
+    if (results.landmarks && results.landmarks.length > 0) {
       setHandPresence(true);
-      
-      for (const landmarks of results.multiHandLandmarks) {
-        // 使用 window.drawConnectors 和 window.HAND_CONNECTIONS
-        if (window.drawConnectors && window.HAND_CONNECTIONS) {
-             window.drawConnectors(ctx, landmarks, window.HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 5 });
-        }
-        if (window.drawLandmarks) {
-             window.drawLandmarks(ctx, landmarks, { color: '#FF0000', lineWidth: 2 });
-        }
-        
-        // --- 光标逻辑 ---
+
+      for (const landmarks of results.landmarks) {
+        drawHandLandmarks(ctx, landmarks);
+
         const indexTip = landmarks[8];
         const thumbTip = landmarks[4];
-        
-        // 计算屏幕坐标
+
+        // Calculate screen coordinates (mirrored for natural interaction)
         const x = (1 - indexTip.x) * window.innerWidth;
         const y = indexTip.y * window.innerHeight;
-        
+
         setCursorPosition({ x, y });
-        
-        // --- 捏合检测 ---
+
+        // Pinch detection
         const distance = Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
-        const PINCH_THRESHOLD = 0.05; 
-        
+        const PINCH_THRESHOLD = 0.05;
         const pinching = distance < PINCH_THRESHOLD;
         setIsPinching(pinching);
-        
+
         const cb = onHandDetectedRef.current;
         if (cb) cb({ x, y, pinching });
       }
@@ -67,9 +91,9 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
       setHandPresence(false);
       setIsPinching(false);
     }
-    
-    ctx.restore();
-  }, []);
+
+    animationFrameRef.current = requestAnimationFrame(processFrame);
+  }, [drawHandLandmarks]);
 
   useEffect(() => {
     setIsModelLoaded(false);
@@ -77,153 +101,109 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
     const videoElement = videoRef.current;
     if (!videoElement) return;
 
-    let hands = null;
-    let camera = null;
+    let stream = null;
     let isMounted = true;
 
     const startSystem = async () => {
       try {
-        // 0. 等待 MediaPipe 脚本就绪（在线/系统浏览器首次加载较慢，轮询最多约 20 秒）
         if (typeof window === 'undefined') return;
-        const base = import.meta.env.BASE_URL || '/';
-        const scriptBase = `${window.location.origin}${base}mediapipe`;
-        if (!window.Hands || !window.Camera) {
-          setStatusMessage('正在加载 MediaPipe 脚本...');
-          const waitStart = Date.now();
-          const WAIT_MS = 20000;
-          while (!window.Hands || !window.Camera) {
-            await new Promise(r => setTimeout(r, 400));
-            if (!isMounted) return;
-            if (Date.now() - waitStart > WAIT_MS) {
-              console.error('MediaPipe 脚本未就绪。请检查 Network 是否成功加载:', [
-                `${scriptBase}/hands.js`,
-                `${scriptBase}/camera_utils/camera_utils.js`,
-                `${scriptBase}/drawing_utils/drawing_utils.js`,
-              ]);
-              setStatusMessage('MediaPipe 未加载：请检查网络后刷新；若为在线访问请确认地址栏为本站完整链接（如含 /仓库名/）');
-              return;
-            }
-          }
-        }
+
         if (window.location.protocol === 'http:' && !window.location.hostname.includes('localhost')) {
           setStatusMessage('请使用 HTTPS 打开（摄像头需要安全连接），或本地运行 npm run dev');
           return;
         }
 
-        // 1. 立即启动摄像头 (让用户先看到画面)
-        setStatusMessage("正在启动摄像头...");
-        const isNarrow = window.innerWidth < 768;
-        camera = new window.Camera(videoElement, {
-          onFrame: async () => {
-            if (hands && modelLoadedRef.current) {
-              await hands.send({ image: videoElement });
-            }
-          },
-          width: isNarrow ? 480 : 640,
-          height: isNarrow ? 270 : 360
-        });
+        // Load MediaPipe Vision tasks
+        setStatusMessage("正在加载 AI 模型...");
+        const vision = await FilesetResolver.forVisionTasks(
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
+        );
 
-        try {
-          await camera.start();
-        } catch (camErr) {
-          if (!isMounted) return;
-          const name = camErr?.name || '';
-          if (name === 'NotAllowedError') setStatusMessage('请允许摄像头权限后刷新');
-          else if (name === 'NotFoundError') setStatusMessage('未检测到摄像头');
-          else if (name === 'NotReadableError') setStatusMessage('摄像头被占用，请关闭其他应用后重试');
-          else setStatusMessage(`摄像头错误: ${camErr?.message || camErr}`);
-          return;
-        }
         if (!isMounted) return;
-        setIsCameraActive(true);
-        console.log("Camera started successfully");
 
-        // 手机/平板用轻量模型 (modelComplexity 0)，加载更快、体积更小
-        const useLiteModel = isNarrow;
-
-        hands = new window.Hands({
-          locateFile: (file) => {
-            const url = `${window.location.origin}${base}mediapipe/${file}`;
-            console.log(`LocateFile requesting: ${url}`);
-            return url;
-          }
-        });
-
-        hands.setOptions({
-          maxNumHands: handMode === 'one' ? 1 : 2,
-          modelComplexity: useLiteModel ? 0 : 1,
-          minDetectionConfidence: 0.5,
+        const isNarrow = window.innerWidth < 768;
+        const handLandmarker = await HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: isNarrow
+              ? 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker_lite/float16/1/hand_landmarker_lite.task'
+              : 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker_full/float16/1/hand_landmarker_full.task',
+            delegate: 'GPU'
+          },
+          runningMode: 'VIDEO',
+          numHands: handMode === 'one' ? 1 : 2,
+          minHandPresenceConfidence: 0.5,
+          minHandDetectionConfidence: 0.5,
           minTrackingConfidence: 0.5
         });
 
-        hands.onResults(onResults);
-
-        // 加载进度：显示已等待秒数，避免用户误以为卡死
-        let loadingSeconds = 0;
-        const loadingTimer = setInterval(() => {
-          if (!isMounted || modelLoadedRef.current) return;
-          loadingSeconds += 3;
-          setStatusMessage(`正在加载 AI 模型... (已等待 ${loadingSeconds} 秒，请勿关闭)`);
-        }, 3000);
-        setStatusMessage("正在加载 AI 模型... (请稍候，首次约 10–30 秒)");
-
-        const LOAD_TIMEOUT_MS = 55000;
-        const initPromise = hands.initialize();
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('LOAD_TIMEOUT')), LOAD_TIMEOUT_MS)
-        );
-
-        try {
-          await Promise.race([initPromise, timeoutPromise]);
-        } catch (initErr) {
-          clearInterval(loadingTimer);
-          if (!isMounted) return;
-          if (initErr?.message === 'LOAD_TIMEOUT') {
-            setStatusMessage('加载超时，请刷新页面重试（已启用 WASM 类型修正）');
-            return;
-          }
-          const msg = initErr?.message || String(initErr);
-          const isWasm = /wasm|abort|simd|module/i.test(msg);
-          setStatusMessage(isWasm ? 'WASM 加载异常，请刷新页面重试；或使用 Chrome/Edge 最新版' : `模型加载失败: ${msg}`);
+        if (!isMounted) {
+          handLandmarker.close();
           return;
         }
-        clearInterval(loadingTimer);
-        if (!isMounted) return;
-        
-        console.log("Hands initialized");
-        setStatusMessage("模型加载完成！正在预热...");
-        
-        // 发送一帧进行预热
-        await hands.send({ image: videoElement });
-        
-        if (isMounted) {
-            modelLoadedRef.current = true;
-            setIsModelLoaded(true);
-            setStatusMessage("系统就绪！");
+
+        handLandmarkerRef.current = handLandmarker;
+        modelLoadedRef.current = true;
+        setIsModelLoaded(true);
+        console.log("HandLandmarker initialized");
+
+        // Start camera
+        setStatusMessage("正在启动摄像头...");
+        const isNarrowDevice = window.innerWidth < 768;
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: isNarrowDevice ? 480 : 640,
+            height: isNarrowDevice ? 270 : 360,
+            facingMode: 'user'
+          }
+        });
+
+        if (!isMounted) {
+          stream.getTracks().forEach(track => track.stop());
+          return;
         }
+
+        videoElement.srcObject = stream;
+        await videoElement.play();
+
+        setIsCameraActive(true);
+        setStatusMessage("识别已激活！请展示手掌。");
+
+        // Start processing frames
+        processFrame();
 
       } catch (err) {
         console.error("System startup error:", err);
-        if (isMounted) {
-            setStatusMessage(`启动错误: ${err.message}`);
-        }
+        if (!isMounted) return;
+
+        const name = err?.name || '';
+        if (name === 'NotAllowedError') setStatusMessage('请允许摄像头权限后刷新');
+        else if (name === 'NotFoundError') setStatusMessage('未检测到摄像头');
+        else if (name === 'NotReadableError') setStatusMessage('摄像头被占用，请关闭其他应用后重试');
+        else setStatusMessage(`启动错误: ${err?.message || err}`);
       }
     };
 
     startSystem();
 
     return () => {
-       isMounted = false;
-       if (videoElement.srcObject) {
-         const tracks = videoElement.srcObject.getTracks();
-         tracks.forEach(track => track.stop());
-         videoElement.srcObject = null;
-       }
-       if (hands) {
-           hands.close();
-       }
+      isMounted = false;
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      if (videoElement.srcObject) {
+        const tracks = videoElement.srcObject.getTracks();
+        tracks.forEach(track => track.stop());
+        videoElement.srcObject = null;
+      }
+      if (handLandmarkerRef.current) {
+        handLandmarkerRef.current.close();
+        handLandmarkerRef.current = null;
+      }
     };
-  }, [handMode]);
+  }, [handMode, processFrame]);
 
   return { isCameraActive, isModelLoaded, handPresence, cursorPosition, isPinching, statusMessage };
 };

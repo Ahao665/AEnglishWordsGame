@@ -32,6 +32,16 @@ function App() {
   const [showTranslationHint, setShowTranslationHint] = useState(false);
   const confirmGestureFiredRef = useRef(false);
   const nextWordGestureFiredRef = useRef(false);
+  const tilesRef = useRef(tiles);
+  const currentWordRef = useRef(currentWord);
+  const lockedCorrectSlotsRef = useRef(lockedCorrectSlots);
+  const placedTileIdsRef = useRef(placedTileIds);
+
+  // Keep refs in sync with state
+  useEffect(() => { tilesRef.current = tiles; }, [tiles]);
+  useEffect(() => { currentWordRef.current = currentWord; }, [currentWord]);
+  useEffect(() => { lockedCorrectSlotsRef.current = lockedCorrectSlots; }, [lockedCorrectSlots]);
+  useEffect(() => { placedTileIdsRef.current = placedTileIds; }, [placedTileIds]);
 
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
   useEffect(() => {
@@ -178,7 +188,7 @@ function App() {
     ));
   };
 
-  const { isCameraActive, isModelLoaded, handPresence, cursorPosition, isPinching, statusMessage } = useHandTracking(videoRef, canvasRef, onHandDetected, handMode);
+  const { isCameraActive, isModelLoaded, handPresence, cursorPosition, isPinching, statusMessage, loadingProgress } = useHandTracking(videoRef, canvasRef, onHandDetected, handMode);
 
   // Game Logic
   useEffect(() => {
@@ -238,11 +248,11 @@ function App() {
   };
 
   const checkDropZone = (tileId, x, y) => {
-    const tile = tiles.find(t => t.id === tileId);
-    if (!tile || !currentWord) return;
+    const tile = tilesRef.current.find(t => t.id === tileId);
+    if (!tile || !currentWordRef.current) return;
 
     const slotIndex = getNearestSlotIndex(x, y);
-    const notLocked = slotIndex >= 0 && !lockedCorrectSlots[slotIndex];
+    const notLocked = slotIndex >= 0 && !lockedCorrectSlotsRef.current[slotIndex];
     if (slotIndex >= 0 && notLocked) {
         setPlacedLetters(prev => {
             const newPlaced = [...prev];
@@ -394,19 +404,44 @@ function App() {
                 <div className="start-content">
                     <h1>🔮 正在召唤...</h1>
                     <p>魔法模型加载中，请稍候...</p>
-                    <div className="status-log" style={{
+                    <div style={{
                         marginTop: '20px',
+                        width: '80%',
+                        maxWidth: '400px',
+                    }}>
+                        <div style={{
+                            height: '8px',
+                            background: 'rgba(255,255,255,0.2)',
+                            borderRadius: '4px',
+                            overflow: 'hidden',
+                        }}>
+                            <div style={{
+                                height: '100%',
+                                width: `${loadingProgress}%`,
+                                background: 'linear-gradient(90deg, #4ecdc4, #44a08d)',
+                                borderRadius: '4px',
+                                transition: 'width 0.3s ease',
+                            }}></div>
+                        </div>
+                        <div style={{
+                            marginTop: '10px',
+                            fontSize: '0.9rem',
+                            color: '#aaa',
+                        }}>{loadingProgress}%</div>
+                    </div>
+                    <div className="status-log" style={{
+                        marginTop: '15px',
                         padding: '10px',
                         background: 'rgba(0,0,0,0.5)',
                         borderRadius: '8px',
                         fontFamily: 'monospace',
                         color: '#00ff00',
                         maxWidth: '80%',
-                        wordBreak: 'break-all'
+                        wordBreak: 'break-all',
+                        fontSize: '0.9rem',
                     }}>
                         {statusMessage}
                     </div>
-                    <div className="loading-spinner"></div>
                 </div>
             </div>
         )}

@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import * as handPoseDetection from '@tensorflow-models/hand-pose-detection';
-import * as tf from '@tensorflow/tfjs';
+import { HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 
 // Hand connections for drawing
 const HAND_CONNECTIONS = [
@@ -22,28 +21,28 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
   const [loadingProgress, setLoadingProgress] = useState(0);
   const modelLoadedRef = useRef(false);
   const onHandDetectedRef = useRef(onHandDetected);
-  const detectorRef = useRef(null);
+  const handLandmarkerRef = useRef(null);
   const animationFrameRef = useRef(null);
 
   useEffect(() => {
     onHandDetectedRef.current = onHandDetected;
   }, [onHandDetected]);
 
-  const drawHandLandmarks = useCallback((ctx, keypoints, videoWidth, videoHeight) => {
+  const drawHandLandmarks = useCallback((ctx, landmarks) => {
     ctx.strokeStyle = '#00FF00';
     ctx.lineWidth = 5;
     for (const [start, end] of HAND_CONNECTIONS) {
-      const startPoint = keypoints[start];
-      const endPoint = keypoints[end];
+      const startPoint = landmarks[start];
+      const endPoint = landmarks[end];
       ctx.beginPath();
-      ctx.moveTo(startPoint.x, startPoint.y);
-      ctx.lineTo(endPoint.x, endPoint.y);
+      ctx.moveTo(startPoint.x * ctx.canvas.width, startPoint.y * ctx.canvas.height);
+      ctx.lineTo(endPoint.x * ctx.canvas.width, endPoint.y * ctx.canvas.height);
       ctx.stroke();
     }
     ctx.fillStyle = '#FF0000';
-    for (const point of keypoints) {
+    for (const point of landmarks) {
       ctx.beginPath();
-      ctx.arc(point.x, point.y, 4, 0, 2 * Math.PI);
+      ctx.arc(point.x * ctx.canvas.width, point.y * ctx.canvas.height, 4, 0, 2 * Math.PI);
       ctx.fill();
     }
   }, []);
@@ -51,64 +50,44 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
   const processFrame = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    const detector = detectorRef.current;
+    const handLandmarker = handLandmarkerRef.current;
 
-    if (!video || !canvas || !detector || !modelLoadedRef.current || video.readyState < 2) {
+    if (!video || !canvas || !handLandmarker || !modelLoadedRef.current) {
       animationFrameRef.current = requestAnimationFrame(processFrame);
       return;
-    }
-
-    // Match canvas size to video
-    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
     }
 
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    detector.estimateHands(video)
-      .then(hands => {
-        if (!modelLoadedRef.current) return;
-        
-        if (hands && hands.length > 0) {
-          setHandPresence(true);
+    const results = handLandmarker.detectForVideo(video, performance.now());
 
-          for (const hand of hands) {
-            const keypoints = hand.keypoints;
-            
-            // Draw landmarks
-            drawHandLandmarks(ctx, keypoints, video.videoWidth, video.videoHeight);
+    if (results.landmarks && results.landmarks.length > 0) {
+      setHandPresence(true);
 
-            const indexTip = keypoints[8];
-            const thumbTip = keypoints[4];
+      for (const landmarks of results.landmarks) {
+        drawHandLandmarks(ctx, landmarks);
 
-            // Convert to normalized coordinates then to screen coordinates
-            const normalizedX = indexTip.x / video.videoWidth;
-            const normalizedY = indexTip.y / video.videoHeight;
-            
-            const x = (1 - normalizedX) * window.innerWidth;
-            const y = normalizedY * window.innerHeight;
+        const indexTip = landmarks[8];
+        const thumbTip = landmarks[4];
 
-            setCursorPosition({ x, y });
+        const x = (1 - indexTip.x) * window.innerWidth;
+        const y = indexTip.y * window.innerHeight;
 
-            // Pinch detection
-            const thumbNormX = thumbTip.x / video.videoWidth;
-            const thumbNormY = thumbTip.y / video.videoHeight;
-            const distance = Math.hypot(normalizedX - thumbNormX, normalizedY - thumbNormY);
-            const PINCH_THRESHOLD = 0.05;
-            const pinching = distance < PINCH_THRESHOLD;
-            setIsPinching(pinching);
+        setCursorPosition({ x, y });
 
-            const cb = onHandDetectedRef.current;
-            if (cb) cb({ x, y, pinching });
-          }
-        } else {
-          setHandPresence(false);
-          setIsPinching(false);
-        }
-      })
-      .catch(e => console.error('Hand detection error:', e));
+        const distance = Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
+        const PINCH_THRESHOLD = 0.05;
+        const pinching = distance < PINCH_THRESHOLD;
+        setIsPinching(pinching);
+
+        const cb = onHandDetectedRef.current;
+        if (cb) cb({ x, y, pinching });
+      }
+    } else {
+      setHandPresence(false);
+      setIsPinching(false);
+    }
 
     animationFrameRef.current = requestAnimationFrame(processFrame);
   }, [drawHandLandmarks]);
@@ -131,36 +110,67 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
           return;
         }
 
-        // Step 1: Initialize TensorFlow.js
-        setStatusMessage("正在初始化 TensorFlow.js...");
+        // Step 1: Load WASM 从本站（不依赖国外 CDN），带超时
+        setStatusMessage("正在加载 WASM 运行时...");
         setLoadingProgress(10);
-        await tf.ready();
+        const base = import.meta.env.BASE_URL || '/';
+        const wasmBase = `${window.location.origin}${base.replace(/\/?$/, '/')}wasm`;
+        const visionPromise = FilesetResolver.forVisionTasks(wasmBase);
+        const timeoutMs = 45000;
+        const vision = await Promise.race([
+          visionPromise,
+          new Promise((_, rej) => setTimeout(() => rej(new Error('WASM_LOAD_TIMEOUT')), timeoutMs))
+        ]).catch((e) => {
+          if (e?.message === 'WASM_LOAD_TIMEOUT') throw new Error('加载超时，请检查网络后刷新；或稍后重试');
+          throw e;
+        });
+
         if (!isMounted) return;
 
-        // Step 2: Create detector with MediaPipe Hands model
+        // Step 2: 模型优先本站，失败则用官方 CDN（文档中的 hand_landmarker.task）
         setStatusMessage("正在加载手势识别模型...");
-        setLoadingProgress(30);
-        
-        const model = handPoseDetection.SupportedModels.MediaPipeHands;
-        const detectorConfig = {
-          runtime: 'mediapipe',
-          solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/hands',
-          modelType: 'lite',
-          maxHands: handMode === 'one' ? 1 : 2,
+        setLoadingProgress(40);
+        const basePath = base.replace(/\/?$/, '/');
+        const origin = window.location.origin;
+        const modelUrls = [
+          `${origin}${basePath}models/hand_landmarker_lite.task`,
+          `${origin}${basePath}models/hand_landmarker.task`,
+          'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task'
+        ];
+        const opts = {
+          runningMode: 'VIDEO',
+          numHands: handMode === 'one' ? 1 : 2,
+          minHandPresenceConfidence: 0.5,
+          minHandDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5
         };
-        
-        const detector = await handPoseDetection.createDetector(model, detectorConfig);
-        
+        let handLandmarker = null;
+        for (const modelAssetPath of modelUrls) {
+          if (!isMounted) break;
+          try {
+            handLandmarker = await HandLandmarker.createFromOptions(vision, {
+              baseOptions: { modelAssetPath, delegate: 'GPU' },
+              ...opts
+            });
+            break;
+          } catch (e) {
+            continue;
+          }
+        }
+        if (!handLandmarker) {
+          throw new Error('无法加载手势模型，请检查网络后刷新；若部署在 GitHub Pages 请确认已提交 public/models 下的 .task 文件');
+        }
+
         if (!isMounted) {
-          detector.dispose();
+          handLandmarker.close();
           return;
         }
 
-        detectorRef.current = detector;
+        handLandmarkerRef.current = handLandmarker;
         modelLoadedRef.current = true;
         setIsModelLoaded(true);
         setLoadingProgress(70);
-        console.log("Hand detector initialized");
+        console.log("HandLandmarker initialized");
 
         // Step 3: Start camera
         setStatusMessage("正在启动摄像头...");
@@ -214,9 +224,9 @@ export const useHandTracking = (videoRef, canvasRef, onHandDetected, handMode = 
         tracks.forEach(track => track.stop());
         videoElement.srcObject = null;
       }
-      if (detectorRef.current) {
-        detectorRef.current.dispose();
-        detectorRef.current = null;
+      if (handLandmarkerRef.current) {
+        handLandmarkerRef.current.close();
+        handLandmarkerRef.current = null;
       }
     };
   }, [handMode, processFrame]);

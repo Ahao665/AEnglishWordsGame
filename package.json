@@ -5,16 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/ensure-model.js && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "@tensorflow/tfjs": "^4.17.0",
-    "@tensorflow-models/hand-pose-detection": "^2.0.1",
-    "@mediapipe/hands": "^0.4.1675469240",
+    "@mediapipe/tasks-vision": "^0.10.0",
     "canvas-confetti": "^1.9.2",
     "gsap": "^3.12.5",
     "use-sound": "^4.0.1",

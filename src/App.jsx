@@ -359,7 +359,9 @@ function App() {
                 <div className="start-content">
                     <h1>✨ 魔法拼写 ✨</h1>
                     <p>请选择魔法模式：</p>
-                    
+                    <p className="hint-text" style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.7)', marginBottom: '12px' }}>
+                      首次加载约需数分钟（约 10MB）；再次访问将从缓存加载，会快很多。
+                    </p>
                     {/* System Status Indicator */}
                     <div style={{ 
                         marginBottom: '20px', 

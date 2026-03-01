@@ -4,10 +4,10 @@ import App from './App.jsx'
 import './index.css'
 import './styles-add.css'
 
-// 注册 Service Worker：为 .wasm 强制设置正确 MIME，避免 GitHub Pages 等环境下实例化失败
+// 注册 Service Worker：缓存 wasm 与 models，二次访问从缓存加载（避免再次等待约 10 分钟）
 const base = import.meta.env.BASE_URL || '/'
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  navigator.serviceWorker.register(`${base}sw-wasm-mime.js`).then(
+  navigator.serviceWorker.register(`${base}sw-cache.js`).then(
     (reg) => {
       if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' })
       reg.addEventListener('updatefound', () => {
